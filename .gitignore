@@ -43,3 +43,6 @@
 ## File-based project format:
 *.ipr
 *.iws
+
+main
+test.txt

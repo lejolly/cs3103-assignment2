@@ -26,7 +26,7 @@ int main()  //AaBee TCP Client
         struct hostent *host;
         struct sockaddr_in server_addr;  
 
-        host = gethostbyname("127.0.0.1");
+        host = gethostbyname("home.jolly.sg");
 
 		//create a Socket structure   - "Client Socket"
 		if ((sock = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
@@ -35,7 +35,7 @@ int main()  //AaBee TCP Client
         }
 
         server_addr.sin_family = AF_INET;     
-        server_addr.sin_port = htons(5000);   
+        server_addr.sin_port = htons(21);
         server_addr.sin_addr = *((struct in_addr *)host->h_addr);
         bzero(&(server_addr.sin_zero),8); 
 
