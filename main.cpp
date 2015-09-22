@@ -14,7 +14,7 @@ using namespace std;
 struct connData {
     struct sockaddr_in serverAddress;
     int socketPort;
-    bool connected = false;
+    bool connected;
 };
 
 connData connectToServer(string server);
