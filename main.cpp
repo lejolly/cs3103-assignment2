@@ -1,3 +1,10 @@
+/*
+FTP Client
+Joshua Lee (A0111987X)
+
+To compile on sunfire use: g++ -std=c++11 -lsocket -lnsl main.cpp
+*/
+
 #include <iostream>
 #include <sstream>
 #include <sys/socket.h>
@@ -8,6 +15,9 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <fstream>
+#include <cstdlib>
+#include <strings.h>
+#include <stdexcept>
 
 using namespace std;
 
@@ -255,7 +265,7 @@ int enterPassiveMode(int socketPort) {
     long backPosition = replyString.find("|)");
     try {
         dataPort = stoi(replyString.substr(frontPosition + 4, backPosition - frontPosition - 4));
-    } catch (invalid_argument e) {
+    } catch (const invalid_argument& e) {
         cout << "Could not get data port from server" << endl;
 
     }
