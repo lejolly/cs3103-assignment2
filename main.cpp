@@ -15,9 +15,9 @@ To compile on sunfire use: g++ -std=c++11 -lsocket -lnsl main.cpp
 #include <dirent.h>
 #include <sys/stat.h>
 #include <fstream>
-#include <cstdlib>
-#include <strings.h>
-#include <stdexcept>
+#include <cstdlib> // needed?
+#include <strings.h> // needed?
+#include <stdexcept> // needed?
 
 using namespace std;
 
@@ -31,9 +31,9 @@ connData connectToServer(string server);
 string getCurrentDir(int socketPort, string currentDir);
 void sendCommand(int socketPort, string command);
 char *getReply(int socketPort);
-void login(int socketPort, string username, string password);
+bool login(int socketPort, string username, string password);
 int enterPassiveMode(int socketPort);
-string printDirectory(sockaddr_in serverAddress, int socketPort, bool print);
+string listDirectory(sockaddr_in serverAddress, int socketPort, bool print);
 string changeDirectory(int socketPort, string directory, string currentDir);
 void list(sockaddr_in serverAddress, int socketPort, bool isFile);
 void listLocalFiles();
@@ -89,7 +89,7 @@ int main() {
                     }
                     case 2: {
                         cout << "Printing remote directory" << endl;
-                        printDirectory(serverAddress, socketPort, true);
+                        currentDir = getCurrentDir(socketPort, currentDir);
                         break;
                     }
                     case 3: {
@@ -103,7 +103,7 @@ int main() {
                     }
                     case 4: {
                         cout << "Listing all files in remote directory" << endl;
-                        list(serverAddress, socketPort, true);
+                        listDirectory(serverAddress, socketPort, true);
                         break;
                     }
                     case 5: {
@@ -160,10 +160,15 @@ int main() {
                         socketPort = connectionData.socketPort;
                         connected = connectionData.connected;
                         if (connected) {
-                            login(socketPort, username, password);
-                            currentDir = getCurrentDir(socketPort, currentDir);
-                            printf("Connected to %s:%d\n",
-                                   inet_ntoa(serverAddress.sin_addr), ntohs(serverAddress.sin_port));
+                            bool loggedIn = login(socketPort, username, password);
+                            if (loggedIn) {
+                                currentDir = getCurrentDir(socketPort, currentDir);
+                                printf("Connected to %s:%d\n",
+                                       inet_ntoa(serverAddress.sin_addr), ntohs(serverAddress.sin_port));
+                            } else {
+                                cout << "Unable to login to server" << endl;
+                                connected = false;
+                            }
                         } else {
                             cout << "Unable to connect to server" << endl;
                         }
@@ -243,7 +248,7 @@ char *getReply(int socketPort) {
     return receivedData;
 }
 
-void login(int socketPort, string username, string password) {
+bool login(int socketPort, string username, string password) {
     if (username.compare("") == 0) {
         username = "anonymous";
     }
@@ -253,7 +258,9 @@ void login(int socketPort, string username, string password) {
     sendCommand(socketPort, "USER " + username);
     printf("Server Response: %s", getReply(socketPort));
     sendCommand(socketPort, "PASS " + password);
-    printf("Server Response: %s", getReply(socketPort));
+    string loginReply = string(getReply(socketPort));
+    cout << "Server Response: " << loginReply;
+    return loginReply.compare(0, 3, "230") == 0;
 }
 
 int enterPassiveMode(int socketPort) {
@@ -272,7 +279,7 @@ int enterPassiveMode(int socketPort) {
     return dataPort;
 }
 
-string printDirectory(sockaddr_in serverAddress, int socketPort, bool print) {
+string listDirectory(sockaddr_in serverAddress, int socketPort, bool print) {
     int dataSocket;
     if ((dataSocket = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
         perror("socket");
@@ -312,7 +319,7 @@ string changeDirectory(int socketPort, string directory, string currentDir) {
 }
 
 void list(sockaddr_in serverAddress, int socketPort, bool isFile) {
-    string replyString = printDirectory(serverAddress, socketPort, false);
+    string replyString = listDirectory(serverAddress, socketPort, false);
     char reply[replyString.length()];
     strncpy(reply, replyString.c_str(), sizeof(reply));
     reply[sizeof(reply) - 1] = 0;
@@ -322,11 +329,11 @@ void list(sockaddr_in serverAddress, int socketPort, bool isFile) {
         string filename = string(file);
         if (isFile) {
             if (filename.compare(0, 1, "d") != 0 && filename.length() > 50) {
-                cout << filename.substr(49) << endl;
+                cout << filename << endl;
             }
         } else {
             if (filename.compare(0, 1, "d") == 0 && filename.length() > 50) {
-                cout << filename.substr(49) << endl;
+                cout << filename << endl;
             }
         }
         file = strtok(NULL, "\n");
@@ -375,14 +382,24 @@ void uploadFile(sockaddr_in serverAddress, int socketPort, string fileName) {
         sendCommand(socketPort, "TYPE I");
         printf("Server Response: %s", getReply(socketPort));
         sendCommand(socketPort, "STOR " + fileName);
-        printf("Server Response: %s", getReply(socketPort));
-        char buffer[2];
-        while(file.read((char *)&buffer, sizeof(buffer))) {
-          send(dataSocket, (char *)&buffer, sizeof(buffer), 0);
+        string serverResponse = string(getReply(socketPort));
+        cout << "Server Response: " << serverResponse;
+        if (serverResponse.compare(0, 3, "150") == 0) {
+            char buffer[1024];
+            while (1) {
+                file.read(buffer, sizeof(buffer));
+                if (file.gcount() == 0) {
+                    break;
+                } else {
+                    send(dataSocket, buffer, (size_t) file.gcount(), 0);
+                }
+            }
+            close(dataSocket);
+            file.close();
+            printf("Server Response: %s", getReply(socketPort));
+        } else {
+            cout << "Cannot upload file" << endl;
         }
-        close(dataSocket);
-        file.close();
-        printf("Server Response: %s", getReply(socketPort));
     } else {
         cout << "Cannot open file" << endl;
     }
@@ -410,15 +427,20 @@ void downloadFile(sockaddr_in serverAddress, int socketPort, string fileName) {
         sendCommand(socketPort, "TYPE I");
         printf("Server Response: %s", getReply(socketPort));
         sendCommand(socketPort, "RETR " + fileName);
-        printf("Server Response: %s", getReply(socketPort));
-        char receivedData[1024];
-        int bytesReceived;
-        while ((bytesReceived = (int) recv(dataSocket,receivedData, 1024, 0)) > 0) {
-            file.write((char *)&receivedData, bytesReceived);
+        string serverResponse = string(getReply(socketPort));
+        cout << "Server Response: " << serverResponse;
+        if (serverResponse.compare(0, 3, "150") == 0) {
+            char receivedData[1024];
+            int bytesReceived;
+            while ((bytesReceived = (int) recv(dataSocket,receivedData, 1024, 0)) > 0) {
+                file.write((char *)&receivedData, bytesReceived);
+            }
+            close(dataSocket);
+            file.close();
+            printf("Server Response: %s", getReply(socketPort));
+        } else {
+            cout << "Cannot download file" << endl;
         }
-        close(dataSocket);
-        file.close();
-        printf("Server Response: %s", getReply(socketPort));
     } else {
         cout << "Cannot open file" << endl;
     }
