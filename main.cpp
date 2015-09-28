@@ -15,9 +15,9 @@ To compile on sunfire use: g++ -std=c++11 -lsocket -lnsl main.cpp
 #include <dirent.h>
 #include <sys/stat.h>
 #include <fstream>
-#include <cstdlib> // needed?
-#include <strings.h> // needed?
-#include <stdexcept> // needed?
+#include <cstdlib>
+#include <strings.h>
+#include <stdexcept>
 
 using namespace std;
 
