@@ -18,9 +18,11 @@ To compile on sunfire use: g++ -std=c++11 -lsocket -lnsl main.cpp
 #include <cstdlib>
 #include <strings.h>
 #include <stdexcept>
+#include <thread>
 
 using namespace std;
 
+// Connection data
 struct connData {
     struct sockaddr_in serverAddress;
     int socketPort;
@@ -41,6 +43,7 @@ void uploadFile(sockaddr_in serverAddress, int socketPort, string fileName);
 void downloadFile(sockaddr_in serverAddress, int socketPort, string fileName);
 
 int main() {
+    // Program variables
     bool quit = false;
     bool connected = false;
     string input = "";
@@ -49,8 +52,8 @@ int main() {
     struct sockaddr_in serverAddress;
     int socketPort;
 
-    cout << "*** Welcome to some FTP Client ***" << endl;
-
+    cout << "*** Welcome to CS3103 FTP Client ***" << endl;
+    // Main loop
     while (!quit) {
         cout << "---" << endl;
         if (connected) {
@@ -80,6 +83,7 @@ int main() {
         if (choice != 0) {
             cout << "---" << endl;
             if (connected) {
+                // Connected to server
                 switch (choice) {
                     case 1: {
                         cout << "Disconnecting" << endl;
@@ -143,6 +147,7 @@ int main() {
                     }
                 }
             } else {
+                // Not connected to server
                 switch (choice) {
                     case 1: {
                         cout << "Enter in server address: ";
@@ -194,28 +199,39 @@ int main() {
 
 connData connectToServer(string server) {
     struct hostent *host = gethostbyname(server.c_str());
-    int socketPort;
-    struct sockaddr_in serverAddress;
-    if ((socketPort = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
-        perror("socket");
-        exit(1);
-    }
-    serverAddress.sin_family = AF_INET;
-    serverAddress.sin_port = htons(21); // FTP port
-    serverAddress.sin_addr = *((struct in_addr *)host->h_addr);
-    bzero(&(serverAddress.sin_zero),8);
-    if (connect(socketPort, (struct sockaddr *)&serverAddress, sizeof(struct sockaddr)) == -1) {
-        perror("connect");
-        exit(1);
-    }
-    printf("Server Response: %s", getReply(socketPort));
     connData connectionData;
-    connectionData.serverAddress = serverAddress;
-    connectionData.socketPort = socketPort;
-    connectionData.connected = true;
+    int socketPort;
+    // Check for valid host
+    if (host == nullptr) {
+        cout << "Invalid server!" << endl;
+        connectionData.connected = false;
+    } else {
+        struct sockaddr_in serverAddress;
+        // Check for socket creation
+        if ((socketPort = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+            perror("Socket Error");
+            connectionData.connected = false;
+        } else {
+            serverAddress.sin_family = AF_INET;
+            serverAddress.sin_port = htons(21); // FTP port
+            serverAddress.sin_addr = *((struct in_addr *)host->h_addr);
+            bzero(&(serverAddress.sin_zero),8);
+            // Check if server accepts connection
+            if (connect(socketPort, (struct sockaddr *)&serverAddress, sizeof(struct sockaddr)) == -1) {
+                perror("Connection Error");
+                connectionData.connected = false;
+            } else {
+                printf("Server Response: %s", getReply(socketPort));
+                connectionData.serverAddress = serverAddress;
+                connectionData.socketPort = socketPort;
+                connectionData.connected = true;
+            }
+        }
+    }
     return connectionData;
 }
 
+// Print current directory
 string getCurrentDir(int socketPort, string currentDir) {
     sendCommand(socketPort, "TYPE A");
     printf("Server Response: %s", getReply(socketPort));
@@ -229,6 +245,7 @@ string getCurrentDir(int socketPort, string currentDir) {
     }
 }
 
+// Sends FTP commands
 void sendCommand(int socketPort, string command) {
     command += "\r\n"; // end off commands properly
     char send_data[1024];
@@ -237,6 +254,7 @@ void sendCommand(int socketPort, string command) {
     send(socketPort, send_data, strlen(send_data), 0);
 }
 
+// Gets a reply from server
 char *getReply(int socketPort) {
     char* receivedData = new char[1024];
     int bytesReceived = (int) recv(socketPort,receivedData, 1024, 0);
@@ -248,6 +266,7 @@ char *getReply(int socketPort) {
     return receivedData;
 }
 
+// Login method, returns true if login is successful
 bool login(int socketPort, string username, string password) {
     if (username.compare("") == 0) {
         username = "anonymous";
@@ -263,6 +282,7 @@ bool login(int socketPort, string username, string password) {
     return loginReply.compare(0, 3, "230") == 0;
 }
 
+// Returns passive port from server
 int enterPassiveMode(int socketPort) {
     int dataPort = 0;
     sendCommand(socketPort, "EPSV");
@@ -279,36 +299,41 @@ int enterPassiveMode(int socketPort) {
     return dataPort;
 }
 
+/// Prints directory list
 string listDirectory(sockaddr_in serverAddress, int socketPort, bool print) {
+    string directoryList = "";
     int dataSocket;
     if ((dataSocket = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
-        perror("socket");
-        exit(1);
-    }
-    int dataPort = enterPassiveMode(socketPort);
-    struct sockaddr_in dataServerAddress;
-    dataServerAddress.sin_family = AF_INET;
-    dataServerAddress.sin_port = htons(dataPort);
-    dataServerAddress.sin_addr = serverAddress.sin_addr;
-    bzero(&(dataServerAddress.sin_zero),8);
-    if (connect(dataSocket, (struct sockaddr *)&dataServerAddress, sizeof(struct sockaddr)) == -1) {
-        perror("connect");
-        exit(1);
-    }
-    string directoryList = "";
-    sendCommand(socketPort, "LIST");
-    printf("Server Response: %s", getReply(socketPort));
-    string reply = getReply(dataSocket);
-    directoryList += reply;
-    while (reply.compare("") != 0) {
-        if (print) {
-            cout << reply;
+        perror("Socket Error");
+    } else {
+        sendCommand(socketPort, "TYPE A");
+        printf("Server Response: %s", getReply(socketPort));
+        int dataPort = enterPassiveMode(socketPort);
+        struct sockaddr_in dataServerAddress;
+        dataServerAddress.sin_family = AF_INET;
+        dataServerAddress.sin_port = htons(dataPort);
+        dataServerAddress.sin_addr = serverAddress.sin_addr;
+        bzero(&(dataServerAddress.sin_zero),8);
+        if (connect(dataSocket, (struct sockaddr *)&dataServerAddress, sizeof(struct sockaddr)) == -1) {
+            perror("Connection Error");
+            close(dataSocket);
+        } else {
+            sendCommand(socketPort, "LIST");
+            printf("Server Response: %s", getReply(socketPort));
+            string reply = string(getReply(dataSocket));
+            directoryList += reply;
+            while (reply.compare("") != 0) {
+                if (print) {
+                    cout << reply;
+                }
+                reply = string(getReply(dataSocket));
+                directoryList += reply;
+            }
+            close(dataSocket);
+            this_thread::sleep_for(chrono::milliseconds(100));
+            printf("Server Response: %s", getReply(socketPort));
         }
-        reply = getReply(dataSocket);
-        directoryList += reply;
     }
-    close(dataSocket);
-    printf("Server Response: %s", getReply(socketPort));
     return directoryList;
 }
 
@@ -318,6 +343,7 @@ string changeDirectory(int socketPort, string directory, string currentDir) {
     return getCurrentDir(socketPort, currentDir);
 }
 
+// Lists either files or directories
 void list(sockaddr_in serverAddress, int socketPort, bool isFile) {
     string replyString = listDirectory(serverAddress, socketPort, false);
     char reply[replyString.length()];
@@ -328,11 +354,11 @@ void list(sockaddr_in serverAddress, int socketPort, bool isFile) {
     while (file != NULL) {
         string filename = string(file);
         if (isFile) {
-            if (filename.compare(0, 1, "d") != 0 && filename.length() > 50) {
+            if (filename.compare(0, 1, "d") != 0) {
                 cout << filename << endl;
             }
         } else {
-            if (filename.compare(0, 1, "d") == 0 && filename.length() > 50) {
+            if (filename.compare(0, 1, "d") == 0) {
                 cout << filename << endl;
             }
         }
@@ -340,23 +366,23 @@ void list(sockaddr_in serverAddress, int socketPort, bool isFile) {
     }
 }
 
+// List local files only, not directories
 void listLocalFiles() {
     DIR* dir = opendir(".");
     if (!dir) {
-        perror("opendir");
-        exit(1);
-    }
-    struct dirent* entry;
-    struct stat dir_stat;
-    while ((entry = readdir(dir)) != NULL) {
-        stat(entry->d_name, &dir_stat);
-        if (!S_ISDIR(dir_stat.st_mode)) {
-            printf("%s\n", entry -> d_name);
+        perror("Directory Opening Error");
+    } else {
+        struct dirent* entry;
+        struct stat dir_stat;
+        while ((entry = readdir(dir)) != NULL) {
+            stat(entry->d_name, &dir_stat);
+            if (!S_ISDIR(dir_stat.st_mode)) {
+                printf("%s\n", entry -> d_name);
+            }
         }
-    }
-    if (closedir(dir) == -1) {
-        perror("closedir");
-        exit(1);
+        if (closedir(dir) == -1) {
+            perror("Directory Closing Error");
+        }
     }
 }
 
@@ -366,39 +392,40 @@ void uploadFile(sockaddr_in serverAddress, int socketPort, string fileName) {
     if (file.is_open()) {
         int dataSocket;
         if ((dataSocket = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
-            perror("socket");
-            exit(1);
-        }
-        int dataPort = enterPassiveMode(socketPort);
-        struct sockaddr_in dataServerAddress;
-        dataServerAddress.sin_family = AF_INET;
-        dataServerAddress.sin_port = htons(dataPort);
-        dataServerAddress.sin_addr = serverAddress.sin_addr;
-        bzero(&(dataServerAddress.sin_zero),8);
-        if (connect(dataSocket, (struct sockaddr *)&dataServerAddress, sizeof(struct sockaddr)) == -1) {
-            perror("connect");
-            exit(1);
-        }
-        sendCommand(socketPort, "TYPE I");
-        printf("Server Response: %s", getReply(socketPort));
-        sendCommand(socketPort, "STOR " + fileName);
-        string serverResponse = string(getReply(socketPort));
-        cout << "Server Response: " << serverResponse;
-        if (serverResponse.compare(0, 3, "150") == 0) {
-            char buffer[1024];
-            while (1) {
-                file.read(buffer, sizeof(buffer));
-                if (file.gcount() == 0) {
-                    break;
+            perror("Socket Error");
+        } else {
+            int dataPort = enterPassiveMode(socketPort);
+            struct sockaddr_in dataServerAddress;
+            dataServerAddress.sin_family = AF_INET;
+            dataServerAddress.sin_port = htons(dataPort);
+            dataServerAddress.sin_addr = serverAddress.sin_addr;
+            bzero(&(dataServerAddress.sin_zero),8);
+            if (connect(dataSocket, (struct sockaddr *)&dataServerAddress, sizeof(struct sockaddr)) == -1) {
+                perror("Connection Error");
+                close(dataSocket);
+            } else {
+                sendCommand(socketPort, "TYPE I");
+                printf("Server Response: %s", getReply(socketPort));
+                sendCommand(socketPort, "STOR " + fileName);
+                string serverResponse = string(getReply(socketPort));
+                cout << "Server Response: " << serverResponse;
+                if (serverResponse.compare(0, 3, "150") == 0) {
+                    char buffer[1024];
+                    while (1) {
+                        file.read(buffer, sizeof(buffer));
+                        if (file.gcount() == 0) {
+                            break;
+                        } else {
+                            send(dataSocket, buffer, (size_t) file.gcount(), 0);
+                        }
+                    }
+                    close(dataSocket);
+                    file.close();
+                    printf("Server Response: %s", getReply(socketPort));
                 } else {
-                    send(dataSocket, buffer, (size_t) file.gcount(), 0);
+                    cout << "Cannot upload file" << endl;
                 }
             }
-            close(dataSocket);
-            file.close();
-            printf("Server Response: %s", getReply(socketPort));
-        } else {
-            cout << "Cannot upload file" << endl;
         }
     } else {
         cout << "Cannot open file" << endl;
@@ -411,35 +438,36 @@ void downloadFile(sockaddr_in serverAddress, int socketPort, string fileName) {
     if (file.is_open()) {
         int dataSocket;
         if ((dataSocket = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
-            perror("socket");
-            exit(1);
-        }
-        int dataPort = enterPassiveMode(socketPort);
-        struct sockaddr_in dataServerAddress;
-        dataServerAddress.sin_family = AF_INET;
-        dataServerAddress.sin_port = htons(dataPort);
-        dataServerAddress.sin_addr = serverAddress.sin_addr;
-        bzero(&(dataServerAddress.sin_zero),8);
-        if (connect(dataSocket, (struct sockaddr *)&dataServerAddress, sizeof(struct sockaddr)) == -1) {
-            perror("connect");
-            exit(1);
-        }
-        sendCommand(socketPort, "TYPE I");
-        printf("Server Response: %s", getReply(socketPort));
-        sendCommand(socketPort, "RETR " + fileName);
-        string serverResponse = string(getReply(socketPort));
-        cout << "Server Response: " << serverResponse;
-        if (serverResponse.compare(0, 3, "150") == 0) {
-            char receivedData[1024];
-            int bytesReceived;
-            while ((bytesReceived = (int) recv(dataSocket,receivedData, 1024, 0)) > 0) {
-                file.write((char *)&receivedData, bytesReceived);
-            }
-            close(dataSocket);
-            file.close();
-            printf("Server Response: %s", getReply(socketPort));
+            perror("Socket Error");
         } else {
-            cout << "Cannot download file" << endl;
+            int dataPort = enterPassiveMode(socketPort);
+            struct sockaddr_in dataServerAddress;
+            dataServerAddress.sin_family = AF_INET;
+            dataServerAddress.sin_port = htons(dataPort);
+            dataServerAddress.sin_addr = serverAddress.sin_addr;
+            bzero(&(dataServerAddress.sin_zero),8);
+            if (connect(dataSocket, (struct sockaddr *)&dataServerAddress, sizeof(struct sockaddr)) == -1) {
+                perror("Connection Error");
+                close(dataSocket);
+            } else {
+                sendCommand(socketPort, "TYPE I");
+                printf("Server Response: %s", getReply(socketPort));
+                sendCommand(socketPort, "RETR " + fileName);
+                string serverResponse = string(getReply(socketPort));
+                cout << "Server Response: " << serverResponse;
+                if (serverResponse.compare(0, 3, "150") == 0) {
+                    char receivedData[1024];
+                    int bytesReceived;
+                    while ((bytesReceived = (int) recv(dataSocket,receivedData, 1024, 0)) > 0) {
+                        file.write((char *)&receivedData, bytesReceived);
+                    }
+                    close(dataSocket);
+                    file.close();
+                    printf("Server Response: %s", getReply(socketPort));
+                } else {
+                    cout << "Cannot download file" << endl;
+                }
+            }
         }
     } else {
         cout << "Cannot open file" << endl;
